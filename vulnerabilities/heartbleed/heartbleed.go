@@ -166,46 +166,61 @@ func checkExtension(buff *bufio.Reader) (bool, error) {
 // Reads from buffer and checks the size of the response
 // to determine if heartbleed was exploited.
 func heartbeatListen(buff *bufio.Reader) string {
-	// listen for reply
-	// ReadBytes has to be ran one to process started, but
-	// it will block if there isn't any data to read
-	var data []byte
+	// Create a channel to signal when to stop reading
+	done := make(chan struct{})
+	defer close(done)
 
+	// Create a channel for collecting data
+	dataChan := make(chan []byte, 1)
+
+	// Start reader goroutine with proper error handling
 	go func() {
-		buff.ReadByte()
+		var data []byte
+
+		defer func() {
+			dataChan <- data // Send collected data before exiting
+		}()
+
+		timeout := time.After(1 * time.Second)
+		i := 0
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-timeout:
+				if len(data) == 0 {
+					return // No data received within timeout
+				}
+			default:
+				if i > 3 && buff.Buffered() == 0 {
+					return // No more data to read
+				}
+
+				b, err := buff.ReadByte()
+				if err != nil {
+					return
+				}
+
+				data = append(data, b)
+				if len(data) >= 1600 {
+					return // Found vulnerability
+				}
+
+				if buff.Buffered() == 0 {
+					i++
+					// Small sleep to prevent tight loop
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
 	}()
 
-	time.Sleep(1 * time.Second)
+	// Wait for the reader goroutine to finish and collect data
+	data := <-dataChan
 
-	i := 0
-
-	for {
-		buffLeft := buff.Buffered()
-
-		// fmt.Printf("iter: %d left: %d\n", i, buffLeft)
-		if buffLeft == 0 && i <= 3 {
-			i++
-			continue
-		}
-
-		if buffLeft == 0 && i > 3 {
-			break
-		}
-
-		b, err := buff.ReadByte()
-		data = append(data, b)
-
-		if err != nil {
-			// logger.Debugf("event_id=heartbleed_error msg=%v", err)
-			break
-		}
-
-		if len(data) >= 1600 {
-			// logger.Debugf("event_id=heartbleed_check status=%s", vulnerable)
-			return vulnerable
-		}
-
-		i++
+	if len(data) >= 1600 {
+		return vulnerable
 	}
 
 	return notVulnerable
