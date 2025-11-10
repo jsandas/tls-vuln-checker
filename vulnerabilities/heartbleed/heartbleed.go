@@ -12,6 +12,9 @@ import (
 	"github.com/jsandas/starttls-go/starttls"
 )
 
+// startTLSFunc is a package-level variable so it can be replaced in tests.
+var startTLSFunc = starttls.StartTLS
+
 // write data to network conn.
 func write(conn net.Conn, data []byte, timeout time.Duration) error {
 	err := conn.SetWriteDeadline(time.Now().Add(timeout * time.Second))
@@ -78,7 +81,7 @@ func (h *Heartbleed) Check(host string, port string, tlsVers int) error {
 		tlsVers = tls.VersionTLS12
 	}
 
-	err = starttls.StartTLS(ctx, conn, port)
+	err = startTLSFunc(ctx, conn, port)
 	if err != nil {
 		h.Vulnerable = testFailed
 
