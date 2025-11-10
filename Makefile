@@ -1,7 +1,8 @@
 .PHONY: test test-unit lint lint-install fmt-check fmt go-mod-tidy quality help
 
 # Run all tests and quality checks
-test: quality test-unit
+test: quality test-unit security
+	@echo "All tests and quality checks passed!"
 
 # Run unit tests only
 test-unit:
@@ -44,6 +45,8 @@ fmt:
 quality: fmt-check go-mod-tidy lint
 	@echo "All code quality checks passed!"
 
+security:
+	gosec -fmt sarif -out results.sarif ./...
 
 # Show help
 help:

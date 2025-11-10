@@ -116,7 +116,7 @@ func makePayload(tlsVers int) []byte {
 	buf := new(bytes.Buffer)
 	msg := HeartbeatMessage{
 		ContentType: recordTypeHeartbeat,
-		TLSVersion:  uint16(tlsVers), //nolint:gosec // disable G115
+		TLSVersion:  uint16(tlsVers), // #nosec G115
 		Length:      3,               // fixed length for heartbeat
 		HBType:      heartbeatMessageType,
 		PayloadLen:  defaultHeartbeatLen,
@@ -162,11 +162,11 @@ func makeClientHello(tlsVers int) []byte {
 	// Create client hello message
 	msg := ClientHelloMessage{
 		ContentType:   recordTypeHandshake,
-		TLSVersion:    uint16(tlsVers), //nolint:gosec // disable G115
+		TLSVersion:    uint16(tlsVers), // #nosec G115
 		Length:        0xdc,            // Total length will be updated
 		HandshakeType: handshakeTypeHello,
 		HSLength:      [3]byte{0, 0, 0xd8}, // Will be updated
-		HSVersion:     uint16(tlsVers),     //nolint:gosec // disable G115
+		HSVersion:     uint16(tlsVers),     // #nosec G115
 		Random:        random,
 		SessionIDLen:  0,
 		CipherSuites:  defaultCipherSuites,
@@ -183,13 +183,13 @@ func makeClientHello(tlsVers int) []byte {
 	_ = binary.Write(hsBuf, binary.BigEndian, msg.SessionIDLen)
 
 	// Write cipher suites
-	_ = binary.Write(hsBuf, binary.BigEndian, uint16(len(msg.CipherSuites)*2)) //nolint:gosec // disable G115
+	_ = binary.Write(hsBuf, binary.BigEndian, uint16(len(msg.CipherSuites)*2)) // #nosec G115
 	for _, suite := range msg.CipherSuites {
 		_ = binary.Write(hsBuf, binary.BigEndian, suite)
 	}
 
 	// Write compression methods
-	_ = binary.Write(hsBuf, binary.BigEndian, uint8(len(msg.CompMethods))) //nolint:gosec // disable G115
+	_ = binary.Write(hsBuf, binary.BigEndian, uint8(len(msg.CompMethods))) // #nosec G115
 	for _, comp := range msg.CompMethods {
 		_ = binary.Write(hsBuf, binary.BigEndian, comp)
 	}
@@ -198,16 +198,15 @@ func makeClientHello(tlsVers int) []byte {
 	extBuf := new(bytes.Buffer)
 	for _, ext := range msg.Extensions {
 		_ = binary.Write(extBuf, binary.BigEndian, ext.Type)
-		_ = binary.Write(extBuf, binary.BigEndian, uint16(len(ext.Data))) //nolint:gosec // disable G115
+		_ = binary.Write(extBuf, binary.BigEndian, uint16(len(ext.Data))) // #nosec G115
 		extBuf.Write(ext.Data)
 	}
 
-	_ = binary.Write(hsBuf, binary.BigEndian, uint16(extBuf.Len())) //nolint:gosec // disable G115
+	_ = binary.Write(hsBuf, binary.BigEndian, uint16(extBuf.Len())) // #nosec G115
 	hsBuf.Write(extBuf.Bytes())
 
-	//nolint:gosec // disable G115
 	// Update lengths
-	msg.Length = uint16(hsBuf.Len()) + 4 // +4 for handshake type and 24-bit length
+	msg.Length = uint16(hsBuf.Len()) + 4 // #nosec G115 // +4 for handshake type and 24-bit length
 	copy(msg.HSLength[:], []byte{0, byte(hsBuf.Len() >> 8), byte(hsBuf.Len())})
 
 	// Write the final message
