@@ -1,25 +1,12 @@
-.PHONY: test test-integration test-unit build clean docker-up docker-down
-
-# Default target
-all: build
-
-# Build the TLS simulator
-build:
-	go build -o tls-simulator .
+.PHONY: test test-unit lint lint-install fmt-check fmt go-mod-tidy quality help
 
 # Run all tests and quality checks
-test: quality test-integration
+test: quality test-unit security
+	@echo "All tests and quality checks passed!"
 
 # Run unit tests only
 test-unit:
 	@go test -v ./...
-
-# Run integration tests (requires docker compose)
-test-integration: docker-up
-	@echo "Waiting for services to be ready..."
-	@sleep 5
-	go test -v -tags integration ./...
-	@$(MAKE) docker-down
 
 # Run linting with golangci-lint
 lint:
@@ -58,22 +45,16 @@ fmt:
 quality: fmt-check go-mod-tidy lint
 	@echo "All code quality checks passed!"
 
-# Run example
-example: build
-	./tls-simulator
+security:
+	gosec -fmt sarif -out results.sarif ./...
 
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build              - Build the TLS simulator"
-	@echo "  test               - Run all tests (integration tests)"
-	@echo "  test-unit          - Show unit test status"
-	@echo "  test-integration   - Run integration tests (requires docker)"
-	@echo "  test-tls13-chacha20 - Run TLS 1.3 with CHACHA20 test"
-	@echo "  test-tls13-default  - Run TLS 1.3 with default ciphers test"
-	@echo "  docker-up          - Start docker services"
-	@echo "  docker-down        - Stop docker services"
-	@echo "  clean              - Clean build artifacts"
+	@echo ""
+	@echo "Testing:"
+	@echo "  test               - Run all tests and quality checks"
+	@echo "  test-unit          - Run unit tests only"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  quality            - Run all code quality checks"
@@ -81,8 +62,7 @@ help:
 	@echo "  lint-install       - Install golangci-lint and run linting"
 	@echo "  fmt-check          - Check code formatting"
 	@echo "  fmt                - Format code with gofmt"
-	@echo "  mod-check          - Check if go.mod is tidy"
+	@echo "  go-mod-tidy        - Check and ensure go.mod/go.sum are tidy"
 	@echo ""
-	@echo "Other:"
-	@echo "  example            - Run the example"
-	@echo "  help               - Show this help"
+	@echo "Development:"
+	@echo "  help               - Show this help message"
