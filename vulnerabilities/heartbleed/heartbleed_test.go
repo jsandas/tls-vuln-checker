@@ -96,6 +96,7 @@ func TestHeartbleedWithMockStartTLS(t *testing.T) {
 	defer cancel()
 
 	lc := net.ListenConfig{}
+
 	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
