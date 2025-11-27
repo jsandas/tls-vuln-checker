@@ -37,6 +37,8 @@ jobs:
       with:
         go-version-file: "go.mod"
         cache: true
-
+  
     - name: Run unit tests
-      run: make test-unit
+      run: |
+        make setup-local
+        go test -v ./... -coverprofile=coverage.out
