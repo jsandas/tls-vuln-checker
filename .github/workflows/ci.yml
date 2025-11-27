@@ -1,15 +1,9 @@
 name: CI Tests
 
 on:
-  workflow_dispatch: {}
-  push:
+  pull_request:
     branches:
-      - '*'
-    paths:
-      - "**/*.go"
-      - "**/go.mod"
-      - "**/go.sum"
-      - ".github/workflows/ci.yml"
+      - 'main'
 
 jobs:
   lint:
@@ -26,17 +20,19 @@ jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [lint]
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
+    - uses: actions/checkout@v5
       
-    - name: Set up Go
-      uses: actions/setup-go@v6
+    - uses: actions/setup-go@v6
       with:
         go-version-file: "go.mod"
         cache: true
-
+  
     - name: Run unit tests
-      run: make test-unit
+      run: |
+        make setup-local
+        go test -v ./... -coverprofile=coverage.out

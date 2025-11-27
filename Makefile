@@ -1,5 +1,12 @@
 .PHONY: test test-unit lint lint-install fmt-check fmt go-mod-tidy quality help
 
+setup-local:
+	mkdir -p resources/weakkeys/
+	docker run --rm -v $(PWD)/resources/weakkeys:/usr/share/openssl-blacklist debian bash -c "\
+		apt-get update && apt-get install -y curl \
+		&& curl https://openrepos.net/sites/default/files/packages/71/openssl-blacklist_0.5-3_all.deb | dpkg-deb -xv - / \
+		&& curl https://openrepos.net/sites/default/files/packages/71/openssl-blacklist-extra_0.5-3_all.deb | dpkg-deb -xv - /"
+
 # Run all tests and quality checks
 test: quality test-unit security
 	@echo "All tests and quality checks passed!"
