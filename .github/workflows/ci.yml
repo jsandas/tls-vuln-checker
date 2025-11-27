@@ -39,4 +39,6 @@ jobs:
         cache: true
 
     - name: Run unit tests
+      env:
+        WEAKKEY_PATH: "../../resources/weakkeys"
       run: make test-unit
