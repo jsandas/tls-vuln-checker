@@ -2,7 +2,7 @@ package debianweakkey
 
 import (
 	"bufio"
-	"crypto/sha1"
+	"crypto/sha1" /* #nosec */
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -33,17 +33,19 @@ type DebianWeakKey struct {
 	Vulnerable string `json:"vulnerable"`
 }
 
-// WeakKey detects if key was generated with weak Debian openssl
+// WeakKey detects if key was generated with weak Debian openssl.
 func (w *DebianWeakKey) Check(keysize int, modulus string) error {
 	w.Vulnerable = notVulnerable
 
 	// only test if common keysize
 	var found bool
+
 	for _, ks := range commonKeySizes {
 		if keysize == ks {
 			found = true
 		}
 	}
+
 	if !found {
 		w.Vulnerable = uncommonKey
 		return nil
@@ -58,9 +60,10 @@ func (w *DebianWeakKey) Check(keysize int, modulus string) error {
 
 	mod := fmt.Sprintf("Modulus=%s\n", strings.ToUpper(modulus))
 	ks := strconv.Itoa(keysize)
+
 	// Compute SHA-1 of the modulus string. Use sha1.Sum to avoid extra
 	// allocations from streaming writer.
-	hsum := sha1.Sum([]byte(mod))
+	hsum := sha1.Sum([]byte(mod)) /* #nosec */
 	sh := hex.EncodeToString(hsum[:])
 
 	// Test overrides
@@ -87,7 +90,8 @@ func (w *DebianWeakKey) Check(keysize int, modulus string) error {
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
+	err = scanner.Err()
+	if err != nil {
 		w.Vulnerable = testFailed
 		return err
 	}

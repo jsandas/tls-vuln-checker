@@ -101,6 +101,7 @@ func TestWeakKeyBad1024(t *testing.T) {
 	if block == nil {
 		panic("failed to parse certificate PEM")
 	}
+
 	crt, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Errorf("error parsing certificate for test: %v", err)
@@ -114,7 +115,6 @@ func TestWeakKeyBad1024(t *testing.T) {
 	if r.Vulnerable != vulnerable {
 		t.Errorf("Did not detect weak key, got: %v, want: %v.", r.Vulnerable, vulnerable)
 	}
-
 }
 
 func TestWeakKeyBad2048(t *testing.T) {
@@ -126,6 +126,7 @@ func TestWeakKeyBad2048(t *testing.T) {
 	if block == nil {
 		panic("failed to parse certificate PEM")
 	}
+
 	crt, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Errorf("error parsing certificate for test: %v", err)
@@ -139,7 +140,6 @@ func TestWeakKeyBad2048(t *testing.T) {
 	if r.Vulnerable != vulnerable {
 		t.Errorf("Did not detect weak key, got: %v, want: %v.", r.Vulnerable, vulnerable)
 	}
-
 }
 
 func TestWeakKeyGood2048(t *testing.T) {
@@ -151,6 +151,7 @@ func TestWeakKeyGood2048(t *testing.T) {
 	if block == nil {
 		panic("failed to parse certificate PEM")
 	}
+
 	crt, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Errorf("error parsing certificate for test: %v", err)
@@ -164,7 +165,6 @@ func TestWeakKeyGood2048(t *testing.T) {
 	if r.Vulnerable == vulnerable {
 		t.Errorf("Did not detect weak key, got: %v, want: %v.", r.Vulnerable, notVulnerable)
 	}
-
 }
 
 func TestWeakKeyUncommonKeySize(t *testing.T) {
@@ -176,6 +176,7 @@ func TestWeakKeyUncommonKeySize(t *testing.T) {
 	if block == nil {
 		panic("failed to parse certificate PEM")
 	}
+
 	crt, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Errorf("error parsing certificate for test: %v", err)
@@ -192,8 +193,9 @@ func TestWeakKeyUncommonKeySize(t *testing.T) {
 }
 
 func TestWeakKeyMissingKeyFile(t *testing.T) {
-	commonKeySizes = []int{512, 1024, 1784, 2048, 4096}
 	var r DebianWeakKey
+
+	commonKeySizes = []int{512, 1024, 1784, 2048, 4096}
 
 	os.Setenv("WEAKKEY_PATH", "../../resources/weakkeys")
 
@@ -201,6 +203,7 @@ func TestWeakKeyMissingKeyFile(t *testing.T) {
 	if block == nil {
 		panic("failed to parse certificate PEM")
 	}
+
 	crt, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Errorf("error parsing certificate for test: %v", err)
@@ -209,10 +212,9 @@ func TestWeakKeyMissingKeyFile(t *testing.T) {
 	pk := crt.PublicKey.(*rsa.PublicKey)
 	ks := pk.Size() * 8
 	mod := fmt.Sprintf("%x", pk.N)
-	err = r.Check(ks, mod)
 
+	err = r.Check(ks, mod)
 	if err == nil {
 		t.Errorf("Expected error for odd key size")
 	}
-
 }
