@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -94,6 +95,8 @@ d7+0ksvbDUmlMMZRIppmHit25taSAGPxmprKhIs2U/39qbfsrXwp4Q==
 func TestWeakKeyBad1024(t *testing.T) {
 	var r DebianWeakKey
 
+	os.Setenv("WEAKKEY_PATH", "../../resources/weakkeys")
+
 	block, _ := pem.Decode([]byte(weak1024))
 	if block == nil {
 		panic("failed to parse certificate PEM")
@@ -116,6 +119,8 @@ func TestWeakKeyBad1024(t *testing.T) {
 
 func TestWeakKeyBad2048(t *testing.T) {
 	var r DebianWeakKey
+
+	os.Setenv("WEAKKEY_PATH", "../../resources/weakkeys")
 
 	block, _ := pem.Decode([]byte(weak2048))
 	if block == nil {
@@ -140,6 +145,8 @@ func TestWeakKeyBad2048(t *testing.T) {
 func TestWeakKeyGood2048(t *testing.T) {
 	var r DebianWeakKey
 
+	os.Setenv("WEAKKEY_PATH", "../../resources/weakkeys")
+
 	block, _ := pem.Decode([]byte(good2048))
 	if block == nil {
 		panic("failed to parse certificate PEM")
@@ -163,6 +170,8 @@ func TestWeakKeyGood2048(t *testing.T) {
 func TestWeakKeyUncommonKeySize(t *testing.T) {
 	var r DebianWeakKey
 
+	os.Setenv("WEAKKEY_PATH", "../../resources/weakkeys")
+
 	block, _ := pem.Decode([]byte(oddSize1784))
 	if block == nil {
 		panic("failed to parse certificate PEM")
@@ -185,6 +194,8 @@ func TestWeakKeyUncommonKeySize(t *testing.T) {
 func TestWeakKeyMissingKeyFile(t *testing.T) {
 	commonKeySizes = []int{512, 1024, 1784, 2048, 4096}
 	var r DebianWeakKey
+
+	os.Setenv("WEAKKEY_PATH", "../../resources/weakkeys")
 
 	block, _ := pem.Decode([]byte(oddSize1784))
 	if block == nil {

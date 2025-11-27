@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"testing"
 )
 
 var commonKeySizes = []int{512, 1024, 2048, 4096}
@@ -50,21 +49,19 @@ func (w *DebianWeakKey) Check(keysize int, modulus string) error {
 		return nil
 	}
 
-	// blpath is the location of weakkeys blacklist files
+	// blpath is the location of weakkeys blacklist files. Override with
+	// environment variable `WEAKKEY_PATH` when running tests or in CI.
 	blpath := "resources/weakkeys"
-
-	// override blpath if running go test
-	if testing.Testing() {
-		blpath = "../../resources/weakkeys"
+	if v, ok := os.LookupEnv("WEAKKEY_PATH"); ok && v != "" {
+		blpath = v
 	}
 
 	mod := fmt.Sprintf("Modulus=%s\n", strings.ToUpper(modulus))
 	ks := strconv.Itoa(keysize)
-	h := sha1.New()
-	h.Write([]byte(mod))
-	bs := h.Sum(nil)
-
-	sh := hex.EncodeToString(bs)
+	// Compute SHA-1 of the modulus string. Use sha1.Sum to avoid extra
+	// allocations from streaming writer.
+	hsum := sha1.Sum([]byte(mod))
+	sh := hex.EncodeToString(hsum[:])
 
 	// Test overrides
 	// ks = "2048"
@@ -79,10 +76,20 @@ func (w *DebianWeakKey) Check(keysize int, modulus string) error {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	// Compare against the last 20 hex characters of the SHA-1 (same
+	// format used by the blacklist files). Stop early when found.
+	target := sh[20:]
+
 	for scanner.Scan() {
-		if sh[20:] == scanner.Text() {
+		if scanner.Text() == target {
 			w.Vulnerable = vulnerable
+			return nil
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		w.Vulnerable = testFailed
+		return err
 	}
 
 	return nil
