@@ -122,6 +122,8 @@ func TestWeakKeyBad2048(t *testing.T) {
 
 	os.Setenv("WEAKKEY_PATH", "../../resources/weakkeys")
 
+	fmt.Printf("path: %s\n", os.Getenv("WEAKKEY_PATH"))
+
 	block, _ := pem.Decode([]byte(weak2048))
 	if block == nil {
 		panic("failed to parse certificate PEM")
