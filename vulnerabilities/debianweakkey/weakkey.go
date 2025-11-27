@@ -70,13 +70,17 @@ func (w *DebianWeakKey) Check(keysize int, modulus string) error {
 	// ks = "2048"
 	// sh = "24a319be7f63b8b46e9cd10d992069d592fe1766"
 
-	// load weak key file
-	file, err := os.Open(blpath + "/blacklist.RSA-" + ks)
+	// load weak key file - use DirFS to safely restrict path access
+	fsys := os.DirFS(blpath)
+
+	f, err := fsys.Open("blacklist.RSA-" + ks)
 	if err != nil {
 		w.Vulnerable = testFailed
 		return err
 	}
-	defer file.Close()
+	defer f.Close()
+
+	file := f
 
 	scanner := bufio.NewScanner(file)
 	// Compare against the last 20 hex characters of the SHA-1 (same
