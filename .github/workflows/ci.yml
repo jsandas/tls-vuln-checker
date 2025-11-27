@@ -38,5 +38,8 @@ jobs:
         go-version-file: "go.mod"
         cache: true
 
+    - name: directory tree
+      run: tree -a -L 3 ../../
+  
     - name: Run unit tests
-      run: make test-unit
+      run: go test -v ./... -coverprofile=coverage.out
