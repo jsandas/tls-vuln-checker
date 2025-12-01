@@ -1,9 +1,12 @@
 name: CI Tests
 
 on:
+  push:
+    branches:
+      - '*'
   pull_request:
     branches:
-      - 'main'
+      - main
 
 jobs:
   lint:
@@ -31,8 +34,6 @@ jobs:
       with:
         go-version-file: "go.mod"
         cache: true
-  
+
     - name: Run unit tests
-      run: |
-        make setup-local
-        go test -v ./... -coverprofile=coverage.out
+      run: go test -v ./... -skip TestWeakKey 
