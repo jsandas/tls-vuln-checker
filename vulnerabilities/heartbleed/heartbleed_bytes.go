@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"math"
 )
 
 // TLS record types.
@@ -112,6 +113,25 @@ type Extension struct {
 	Data []byte
 }
 
+func mustUint16Length(length int) uint16 {
+	if length < 0 || length > math.MaxUint16 {
+		panic("tls record length exceeds uint16")
+	}
+
+	return uint16(length) // #nosec G115 -- bounded above by math.MaxUint16 and rejected when negative
+}
+
+func mustUint24Length(length int) [3]byte {
+	if length < 0 || length > 0x00ffffff {
+		panic("tls handshake length exceeds 24-bit field")
+	}
+
+	var encoded [4]byte
+	binary.BigEndian.PutUint32(encoded[:], uint32(length)) // #nosec G115 -- bounded to 24 bits and rejected when negative
+
+	return [3]byte{encoded[1], encoded[2], encoded[3]}
+}
+
 func makePayload(tlsVers int) []byte {
 	buf := new(bytes.Buffer)
 	msg := HeartbeatMessage{
@@ -206,8 +226,9 @@ func makeClientHello(tlsVers int) []byte {
 	hsBuf.Write(extBuf.Bytes())
 
 	// Update lengths
-	msg.Length = uint16(hsBuf.Len()) + 4 // #nosec G115 // +4 for handshake type and 24-bit length
-	copy(msg.HSLength[:], []byte{0, byte(hsBuf.Len() >> 8), byte(hsBuf.Len())})
+	hsLen := hsBuf.Len()
+	msg.Length = mustUint16Length(hsLen + 4) // +4 for handshake type and 24-bit length
+	msg.HSLength = mustUint24Length(hsLen)
 
 	// Write the final message
 	_ = binary.Write(buf, binary.BigEndian, msg.ContentType)
