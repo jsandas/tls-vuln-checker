@@ -107,7 +107,9 @@ func TestCheckCCS(t *testing.T) {
 			defer conn.Close()
 
 			buf := make([]byte, 2048)
+
 			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
 			_, err = conn.Read(buf)
 			if err != nil {
 				return
@@ -115,6 +117,7 @@ func TestCheckCCS(t *testing.T) {
 
 			serverHelloDoneMsg := []byte{recordTypeHandshake, 0x03, 0x01, 0x00, 0x04,
 				handshakeTypeServerHelloDone, 0x00, 0x00, 0x00}
+
 			_, err = conn.Write(serverHelloDoneMsg)
 			if err != nil {
 				return
@@ -124,6 +127,7 @@ func TestCheckCCS(t *testing.T) {
 		host, port, _ := net.SplitHostPort(ln.Addr().String())
 
 		var r CCSInjection
+
 		err = r.Check(host, port)
 		if err != nil {
 			t.Fatalf("Check failed with an unexpected error: %v", err)
