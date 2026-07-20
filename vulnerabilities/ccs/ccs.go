@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"github.com/jsandas/starttls-go/starttls"
 )
 
 /*
@@ -58,6 +60,9 @@ type tlsRecordHeader struct {
 	Length  uint16
 }
 
+// startTLSFunc is a package-level variable so it can be replaced in tests.
+var startTLSFunc = starttls.StartTLS
+
 // Check for CCS Injection vulnerability (CVE-2014-0224).
 func (ccs *CCSInjection) Check(host string, port string) error {
 	// Create a context with timeout
@@ -76,6 +81,13 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 	}
 
 	defer conn.Close()
+
+	err = startTLSFunc(ctx, conn, port)
+	if err != nil {
+		ccs.Vulnerable = testFailed
+
+		return err
+	}
 
 	clientHello := buildClientHello()
 
@@ -115,8 +127,9 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return err
 	}
 
-	// A non-vulnerable server should send an alert immediately.
-	// Set a short deadline to check for this.
+	// A non-vulnerable server should send an immediate fatal alert for the CCS.
+	// If it remains silent, closes the connection, or returns any other record,
+	// that is consistent with a vulnerable implementation.
 	err = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	if err != nil {
 		ccs.Vulnerable = testFailed
@@ -124,16 +137,18 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return err
 	}
 
-	_, _, err = readTLSRecord(conn)
+	header, body, err := readTLSRecord(conn)
 	if err == nil {
-		// If we read a record successfully, it's likely an alert.
-		// Assume not vulnerable.
-		ccs.Vulnerable = notVulnerable
+		if header.Type == recordTypeAlert && len(body) >= 2 && body[0] == alertLevelFatal && body[1] == alertUnexpectedMessage {
+			ccs.Vulnerable = notVulnerable
+		} else {
+			ccs.Vulnerable = vulnerable
+		}
 
 		return nil
 	}
 
-	// Reset deadline
+	// Reset deadline.
 	err = conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		ccs.Vulnerable = testFailed
@@ -141,30 +156,23 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return err
 	}
 
-	// Send second CCS message to force a response
+	// Send a second CCS to confirm that the server does not reject the message.
 	_, err = conn.Write(ccsMessage)
 	if err != nil {
-		ccs.Vulnerable = testFailed
-
-		return err
-	}
-
-	header, body, err := readTLSRecord(conn)
-	if err != nil {
-		// If we can't read a record, it's inconclusive.
-		// The original script treats this as a handshake failure.
-		// We'll mark as not vulnerable to be safe.
-		ccs.Vulnerable = notVulnerable
+		ccs.Vulnerable = vulnerable
 
 		return nil
 	}
 
-	if header.Type == recordTypeAlert {
-		if len(body) >= 2 && body[0] == alertLevelFatal && body[1] == alertUnexpectedMessage {
-			ccs.Vulnerable = notVulnerable
-		} else {
-			ccs.Vulnerable = vulnerable
-		}
+	header, body, err = readTLSRecord(conn)
+	if err != nil {
+		ccs.Vulnerable = vulnerable
+
+		return nil
+	}
+
+	if header.Type == recordTypeAlert && len(body) >= 2 && body[0] == alertLevelFatal && body[1] == alertUnexpectedMessage {
+		ccs.Vulnerable = notVulnerable
 	} else {
 		ccs.Vulnerable = vulnerable
 	}
@@ -191,9 +199,9 @@ func readTLSRecord(r io.Reader) (*tlsRecordHeader, []byte, error) {
 }
 
 func buildClientHello() []byte {
-	// A simplified ClientHello.
-	// In a real-world scenario, this would be more complex, with extensions,
-	// cipher suites, etc. For this test, a minimal hello is sufficient.
+	// A simplified but valid ClientHello.
+	// The handshake length must match the bytes written in the payload,
+	// otherwise many servers reject the message immediately.
 	random := make([]byte, 32)
 
 	_, err := rand.Read(random)
@@ -202,9 +210,9 @@ func buildClientHello() []byte {
 	}
 
 	clientHello := new(bytes.Buffer)
-	// Handshake header
-	clientHello.WriteByte(handshakeTypeClientHello) // Handshake Type
-	clientHello.Write([]byte{0x00, 0x00, 0x35})     // Length
+	// Handshake header: type + length placeholder
+	clientHello.WriteByte(handshakeTypeClientHello)
+	clientHello.Write([]byte{0x00, 0x00, 0x00})
 
 	// Client Version (TLS 1.2)
 	clientHello.Write([]byte{0x03, 0x03})
@@ -240,17 +248,23 @@ func buildClientHello() []byte {
 	// Extensions (empty for this simplified hello)
 	clientHello.Write([]byte{0x00, 0x00})
 
+	payloadBytes := clientHello.Bytes()
+	handshakeLength := len(payloadBytes) - 4
+	payloadBytes[1] = byte(handshakeLength >> 16)
+	payloadBytes[2] = byte(handshakeLength >> 8)
+	payloadBytes[3] = byte(handshakeLength)
+
 	// Record header
 	record := new(bytes.Buffer)
 	record.WriteByte(recordTypeHandshake) // Record Type
 	record.Write([]byte{0x03, 0x01})      // Version (TLS 1.0)
 
-	err = binary.Write(record, binary.BigEndian, uint16(clientHello.Len())) // #nosec G115
+	err = binary.Write(record, binary.BigEndian, uint16(len(payloadBytes))) // #nosec G115
 	if err != nil {
 		return nil
 	}
 
-	record.Write(clientHello.Bytes())
+	record.Write(payloadBytes)
 
 	return record.Bytes()
 }
