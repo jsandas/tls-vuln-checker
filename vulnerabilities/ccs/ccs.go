@@ -171,7 +171,8 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return nil
 	}
 
-	if header.Type == recordTypeAlert && len(body) >= 2 && body[0] == alertLevelFatal && body[1] == alertUnexpectedMessage {
+	if header.Type == recordTypeAlert && len(body) >= 2 &&
+		body[0] == alertLevelFatal && body[1] == alertUnexpectedMessage {
 		ccs.Vulnerable = notVulnerable
 	} else {
 		ccs.Vulnerable = vulnerable
