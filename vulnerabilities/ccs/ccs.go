@@ -324,7 +324,8 @@ func buildClientHello() []byte {
 
 	payloadBytes := clientHello.Bytes()
 	handshakeLength := len(payloadBytes) - 4
-	payloadBytes[1] = 0 // high byte of 24-bit handshake length (0 for this small ClientHello)
+	// high byte of 24-bit handshake length (0 for this small ClientHello)
+	payloadBytes[1] = 0
 	payloadBytes[2] = byte(uint16(handshakeLength) >> 8) // #nosec G115
 	payloadBytes[3] = byte(uint16(handshakeLength))      // #nosec G115
 

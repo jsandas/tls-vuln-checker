@@ -90,9 +90,11 @@ func TestCheckCCS(t *testing.T) {
 	t.Run("NoResponseServer", func(t *testing.T) {
 		old := startTLSFunc
 		startTLSFunc = func(ctx context.Context, conn net.Conn, port string) error { return nil }
+
 		t.Cleanup(func() { startTLSFunc = old })
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
 		defer cancel()
 
 		lc := net.ListenConfig{}
