@@ -248,6 +248,7 @@ func TestCheckCCS(t *testing.T) {
 			buf := make([]byte, 2048)
 
 			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
 			_, err = conn.Read(buf)
 			if err != nil {
 				return
@@ -263,12 +264,14 @@ func TestCheckCCS(t *testing.T) {
 
 			// Read first CCS and respond with a warning alert (suspicious but not decisive).
 			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
 			_, err = conn.Read(buf)
 			if err != nil {
 				return
 			}
 
 			warningAlert := []byte{recordTypeAlert, 0x03, 0x01, 0x00, 0x02, 0x01, alertUnexpectedMessage}
+
 			_, err = conn.Write(warningAlert)
 			if err != nil {
 				return
@@ -276,6 +279,7 @@ func TestCheckCCS(t *testing.T) {
 
 			// Read second CCS and then send fatal alert to indicate proper rejection.
 			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
 			_, err = conn.Read(buf)
 			if err != nil {
 				return
