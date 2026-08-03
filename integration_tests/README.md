@@ -27,7 +27,5 @@ docker compose down
 
 You can override host/port defaults:
 
-- `NGINX_GOOD_HOST`, `NGINX_GOOD_PORT`
-- `NGINX_BAD_HOST`, `NGINX_BAD_PORT`
 - `NGINX_GOOD_EXPECTED_CCS` (default: `no`)
-- `NGINX_BAD_EXPECTED_CCS` (default: `no`)
+- `NGINX_BAD_EXPECTED_CCS` (default: `yes`)

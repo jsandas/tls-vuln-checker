@@ -88,10 +88,11 @@ func TestCheckCCS(t *testing.T) {
 	})
 
 	t.Run("NoResponseServer", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		old := startTLSFunc
+		startTLSFunc = func(ctx context.Context, conn net.Conn, port string) error { return nil }
+		t.Cleanup(func() { startTLSFunc = old })
 
-		lc := net.ListenConfig{}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
 		ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 		if err != nil {
