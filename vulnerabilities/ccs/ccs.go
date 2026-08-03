@@ -199,11 +199,12 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return nil
 	}
 
-	if isFatalAlert(header, body) {
+	switch {
+	case isFatalAlert(header, body):
 		ccs.Vulnerable = notVulnerable
-	} else if isConfirmedVulnerableResponse(header, body) {
+	case isConfirmedVulnerableResponse(header, body):
 		ccs.Vulnerable = vulnerable
-	} else {
+	default:
 		ccs.Vulnerable = notVulnerable
 	}
 
@@ -323,9 +324,9 @@ func buildClientHello() []byte {
 
 	payloadBytes := clientHello.Bytes()
 	handshakeLength := len(payloadBytes) - 4
-	payloadBytes[1] = byte(handshakeLength >> 16)
-	payloadBytes[2] = byte(handshakeLength >> 8)
-	payloadBytes[3] = byte(handshakeLength)
+	payloadBytes[1] = 0                                  // always 0 for TLS 16-bit length
+	payloadBytes[2] = byte(uint16(handshakeLength) >> 8) // #nosec G115
+	payloadBytes[3] = byte(uint16(handshakeLength))      // #nosec G115
 
 	// Record header
 	record := new(bytes.Buffer)
