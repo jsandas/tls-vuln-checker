@@ -27,6 +27,7 @@ func TestCCSInjectionNginxGood(t *testing.T) {
 	}
 }
 
+func TestCCSInjectionNginxBad(t *testing.T) {
 	host := envDefault("NGINX_BAD_HOST", "127.0.0.1")
 	port := envDefault("NGINX_BAD_PORT", "8443")
 	expected := envDefault("NGINX_BAD_EXPECTED_CCS", "yes")
