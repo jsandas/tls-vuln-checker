@@ -93,6 +93,9 @@ func TestCheckCCS(t *testing.T) {
 		t.Cleanup(func() { startTLSFunc = old })
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		lc := net.ListenConfig{}
 
 		ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 		if err != nil {
