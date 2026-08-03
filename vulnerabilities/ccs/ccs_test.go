@@ -86,6 +86,64 @@ func TestCheckCCS(t *testing.T) {
 			t.Fatal("Expected a connection error, but got nil")
 		}
 	})
+
+	t.Run("NoResponseServer", func(t *testing.T) {
+		old := startTLSFunc
+		startTLSFunc = func(ctx context.Context, conn net.Conn, port string) error { return nil }
+
+		t.Cleanup(func() { startTLSFunc = old })
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+		defer cancel()
+
+		lc := net.ListenConfig{}
+
+		ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("Failed to listen: %v", err)
+		}
+		defer ln.Close()
+
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 2048)
+
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			serverHelloDoneMsg := []byte{recordTypeHandshake, 0x03, 0x01, 0x00, 0x04,
+				handshakeTypeServerHelloDone, 0x00, 0x00, 0x00}
+
+			_, err = conn.Write(serverHelloDoneMsg)
+			if err != nil {
+				return
+			}
+		}()
+
+		host, port, _ := net.SplitHostPort(ln.Addr().String())
+
+		var r CCSInjection
+
+		err = r.Check(host, port)
+		if err != nil {
+			t.Fatalf("Check failed with an unexpected error: %v", err)
+		}
+
+		if r.Vulnerable != notVulnerable {
+			t.Errorf("Expected server to be not vulnerable when it closes after unexpected CCS, got: %s", r.Vulnerable)
+		}
+	})
+
 	t.Run("VulnerableServer", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -171,6 +229,144 @@ func TestCheckCCS(t *testing.T) {
 
 		if r.Vulnerable != vulnerable {
 			t.Errorf("Expected server to be vulnerable, got: %s", r.Vulnerable)
+		}
+	})
+
+	t.Run("FatalAlertIsNotVulnerable", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		lc := net.ListenConfig{}
+
+		ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("Failed to listen: %v", err)
+		}
+		defer ln.Close()
+
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 2048)
+
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			serverHelloDoneMsg := []byte{recordTypeHandshake, 0x03, 0x01, 0x00, 0x04,
+				handshakeTypeServerHelloDone, 0x00, 0x00, 0x00}
+
+			_, err = conn.Write(serverHelloDoneMsg)
+			if err != nil {
+				return
+			}
+
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			fatalAlert := []byte{recordTypeAlert, 0x03, 0x01, 0x00, 0x02, alertLevelFatal, 0x46}
+			_, _ = conn.Write(fatalAlert)
+		}()
+
+		host, port, _ := net.SplitHostPort(ln.Addr().String())
+
+		var r CCSInjection
+
+		err = r.Check(host, port)
+		if err != nil {
+			t.Fatalf("Check failed with an unexpected error: %v", err)
+		}
+
+		if r.Vulnerable != notVulnerable {
+			t.Errorf("Expected server to be not vulnerable when it responds with a fatal alert, got: %s", r.Vulnerable)
+		}
+	})
+
+	t.Run("SuspiciousThenFatalIsNotVulnerable", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		lc := net.ListenConfig{}
+
+		ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("Failed to listen: %v", err)
+		}
+		defer ln.Close()
+
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 2048)
+
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			serverHelloDoneMsg := []byte{recordTypeHandshake, 0x03, 0x01, 0x00, 0x04,
+				handshakeTypeServerHelloDone, 0x00, 0x00, 0x00}
+
+			_, err = conn.Write(serverHelloDoneMsg)
+			if err != nil {
+				return
+			}
+
+			// Read first CCS and respond with a warning alert (suspicious but not decisive).
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			warningAlert := []byte{recordTypeAlert, 0x03, 0x01, 0x00, 0x02, 0x01, alertUnexpectedMessage}
+
+			_, err = conn.Write(warningAlert)
+			if err != nil {
+				return
+			}
+
+			// Read second CCS and then send fatal alert to indicate proper rejection.
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			fatalAlert := []byte{recordTypeAlert, 0x03, 0x01, 0x00, 0x02, alertLevelFatal, alertUnexpectedMessage}
+			_, _ = conn.Write(fatalAlert)
+		}()
+
+		host, port, _ := net.SplitHostPort(ln.Addr().String())
+
+		var r CCSInjection
+
+		err = r.Check(host, port)
+		if err != nil {
+			t.Fatalf("Check failed with an unexpected error: %v", err)
+		}
+
+		if r.Vulnerable != notVulnerable {
+			t.Errorf("Expected server to be not vulnerable after fatal second response, got: %s", r.Vulnerable)
 		}
 	})
 }

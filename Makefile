@@ -1,4 +1,4 @@
-.PHONY: test test-unit lint lint-install fmt-check fmt go-mod-tidy quality help
+.PHONY: test test-unit test-integration integration-up integration-down lint lint-install fmt-check fmt go-mod-tidy quality help
 
 setup-local:
 	mkdir -p resources/weakkeys/
@@ -14,6 +14,18 @@ test: quality test-unit security
 # Run unit tests only
 test-unit:
 	@go test -v ./...
+
+# Start integration test containers
+integration-up:
+	@cd integration_tests && docker compose up -d
+
+# Stop integration test containers
+integration-down:
+	@cd integration_tests && docker compose down
+
+# Run integration tests (requires running containers)
+test-integration:
+	@cd integration_tests && go test -v -tags=integration ./...
 
 # Run linting with golangci-lint
 lint:
@@ -62,6 +74,9 @@ help:
 	@echo "Testing:"
 	@echo "  test               - Run all tests and quality checks"
 	@echo "  test-unit          - Run unit tests only"
+	@echo "  test-integration   - Run integration tests"
+	@echo "  integration-up     - Start integration test containers"
+	@echo "  integration-down   - Stop integration test containers"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  quality            - Run all code quality checks"
