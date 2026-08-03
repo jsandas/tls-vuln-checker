@@ -1,0 +1,10 @@
+services:
+  nginx_good:
+    image: ghcr.io/jsandas/nginx_good
+    ports:
+      - "443:443"
+
+  nginx_bad:
+    image: ghcr.io/jsandas/nginx_bad
+    ports:
+      - "8443:443"

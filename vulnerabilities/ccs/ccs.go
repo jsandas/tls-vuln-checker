@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
+	"syscall"
 	"time"
 
 	"github.com/jsandas/starttls-go/starttls"
@@ -36,6 +38,7 @@ const (
 	recordTypeChangeCipherSpec = 20
 	recordTypeAlert            = 21
 	recordTypeHandshake        = 22
+	recordTypeApplicationData  = 23
 )
 
 // TLS handshake message types.
@@ -127,9 +130,9 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return err
 	}
 
-	// A non-vulnerable server should send an immediate fatal alert for the CCS.
-	// If it remains silent, closes the connection, or returns any other record,
-	// that is consistent with a vulnerable implementation.
+	// A non-vulnerable server should reject unexpected CCS with a fatal alert,
+	// or close the connection. Any other response is only suspicious and requires
+	// a second CCS confirmation.
 	err = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	if err != nil {
 		ccs.Vulnerable = testFailed
@@ -139,11 +142,17 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 
 	header, body, err := readTLSRecord(conn)
 	if err == nil {
-		if header.Type == recordTypeAlert && len(body) >= 2 && body[0] == alertLevelFatal && body[1] == alertUnexpectedMessage {
+		if isFatalAlert(header, body) {
 			ccs.Vulnerable = notVulnerable
-		} else {
-			ccs.Vulnerable = vulnerable
+
+			return nil
 		}
+		// Any non-fatal first response is only suspicious. Require a second
+		// malformed CCS probe to confirm vulnerable behavior.
+	}
+
+	if isConnectionClosedErr(err) {
+		ccs.Vulnerable = notVulnerable
 
 		return nil
 	}
@@ -159,26 +168,89 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 	// Send a second CCS to confirm that the server does not reject the message.
 	_, err = conn.Write(ccsMessage)
 	if err != nil {
-		ccs.Vulnerable = vulnerable
+		if isConnectionClosedErr(err) {
+			ccs.Vulnerable = notVulnerable
+		} else {
+			ccs.Vulnerable = vulnerable
+		}
 
 		return nil
+	}
+
+	err = conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if err != nil {
+		ccs.Vulnerable = testFailed
+
+		return err
 	}
 
 	header, body, err = readTLSRecord(conn)
 	if err != nil {
-		ccs.Vulnerable = vulnerable
+		if isConnectionClosedErr(err) {
+			ccs.Vulnerable = notVulnerable
+
+			return nil
+		}
+
+		// No response after confirmation is inconclusive; treat as not vulnerable
+		// to avoid false positives from network timing differences.
+		ccs.Vulnerable = notVulnerable
 
 		return nil
 	}
 
-	if header.Type == recordTypeAlert && len(body) >= 2 &&
-		body[0] == alertLevelFatal && body[1] == alertUnexpectedMessage {
+	if isFatalAlert(header, body) {
 		ccs.Vulnerable = notVulnerable
-	} else {
+	} else if isConfirmedVulnerableResponse(header, body) {
 		ccs.Vulnerable = vulnerable
+	} else {
+		ccs.Vulnerable = notVulnerable
 	}
 
 	return nil
+}
+
+func isConnectionClosedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, io.EOF) ||
+		errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+
+	var opErr *net.OpError
+
+	if errors.As(err, &opErr) {
+		if errors.Is(opErr.Err, syscall.EPIPE) || errors.Is(opErr.Err, syscall.ECONNRESET) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isFatalAlert(header *tlsRecordHeader, body []byte) bool {
+	return header.Type == recordTypeAlert && len(body) >= 2 && body[0] == alertLevelFatal
+}
+
+func isConfirmedVulnerableResponse(header *tlsRecordHeader, body []byte) bool {
+	if header.Type == recordTypeAlert {
+		if len(body) < 2 {
+			return false
+		}
+
+		return body[0] != alertLevelFatal
+	}
+
+	// Any continuation of TLS state after malformed CCS strongly suggests
+	// vulnerable behavior.
+	return header.Type == recordTypeHandshake ||
+		header.Type == recordTypeChangeCipherSpec ||
+		header.Type == recordTypeApplicationData
 }
 
 func readTLSRecord(r io.Reader) (*tlsRecordHeader, []byte, error) {
