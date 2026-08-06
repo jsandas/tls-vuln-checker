@@ -20,7 +20,7 @@ The implementation is intentionally modular, so each check can be used independe
 - Structured result objects with clear status values
 - Minimal dependencies and straightforward Go API
 - Built-in support for timeout-based network checks
-- Tests covering both vulnerable and non-vulnerable behavior
+- Unit and integration test coverage for both vulnerable and non-vulnerable behavior
 
 ## Implemented Vulnerability Checks
 
@@ -35,6 +35,8 @@ Tests for the Heartbleed vulnerability (CVE-2014-0160) by probing for TLS heartb
 ### Debian Weak Key
 
 Detects weak Debian/OpenSSL key material (CVE-2008-0166) by comparing a certificate modulus against known weak-key blacklists for common RSA key sizes.
+
+> **Note**: This check requires blacklist files to be present at `resources/weakkeys/` (relative to the working directory) or at the path specified by the `WEAKKEY_PATH` environment variable. Run `make setup-local` to download the blacklist files before using this check.
 
 ## Installation
 
@@ -70,6 +72,7 @@ func main() {
         fmt.Println("Heartbleed check failed:", err)
     } else {
         fmt.Printf("Heartbleed vulnerable? %s\n", hbCheck.Vulnerable)
+        fmt.Printf("Heartbeat extension enabled? %v\n", hbCheck.ExtensionEnabled)
     }
 
     weakKeyCheck := &debianweakkey.DebianWeakKey{}
