@@ -107,9 +107,9 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		header, body, err := readTLSRecord(conn)
 		if err != nil {
 			if isConnectionClosedErr(err) {
-				ccs.Vulnerable = notVulnerable
+				ccs.Vulnerable = testFailed
 
-				return nil
+				return err
 			}
 
 			ccs.Vulnerable = testFailed
