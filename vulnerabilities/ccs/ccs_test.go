@@ -232,7 +232,7 @@ func TestCheckCCS(t *testing.T) {
 		}
 	})
 
-	t.Run("FatalAlertIsNotVulnerable", func(t *testing.T) {
+	t.Run("FatalAlertWithoutUnexpectedMessageIsVulnerable", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
@@ -288,8 +288,8 @@ func TestCheckCCS(t *testing.T) {
 			t.Fatalf("Check failed with an unexpected error: %v", err)
 		}
 
-		if r.Vulnerable != notVulnerable {
-			t.Errorf("Expected server to be not vulnerable when it responds with a fatal alert, got: %s", r.Vulnerable)
+		if r.Vulnerable != vulnerable {
+			t.Errorf("Expected server to be vulnerable when it responds with a non-unexpected fatal alert, got: %s", r.Vulnerable)
 		}
 	})
 

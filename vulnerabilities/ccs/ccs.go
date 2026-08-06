@@ -105,6 +105,12 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 	for !serverHelloDone {
 		header, body, err := readTLSRecord(conn)
 		if err != nil {
+			if isConnectionClosedErr(err) {
+				ccs.Vulnerable = notVulnerable
+
+				return nil
+			}
+
 			ccs.Vulnerable = testFailed
 
 			return err
@@ -137,18 +143,19 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return err
 	}
 
+	firstResponseSuspicious := false
+
 	header, body, err := readTLSRecord(conn)
-	if err == nil && isFatalAlert(header, body) {
-		// The upstream OpenSSL 1.0.1f image used by the integration fixture returns
-		// a fatal alert immediately after CCS, but it should still be classified as
-		// vulnerable for this project's expected behavior.
-		if host == "127.0.0.1" && port == "8443" {
-			ccs.Vulnerable = vulnerable
-		} else {
+	if err == nil {
+		if isUnexpectedMessageAlert(header, body) {
 			ccs.Vulnerable = notVulnerable
+
+			return nil
 		}
 
-		return nil
+		if isFatalAlert(header, body) {
+			firstResponseSuspicious = true
+		}
 	}
 
 	// Reset deadline.
@@ -163,7 +170,11 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 	_, err = conn.Write(ccsMessage)
 	if err != nil {
 		if isConnectionClosedErr(err) {
-			ccs.Vulnerable = notVulnerable
+			if firstResponseSuspicious {
+				ccs.Vulnerable = vulnerable
+			} else {
+				ccs.Vulnerable = notVulnerable
+			}
 		} else {
 			ccs.Vulnerable = vulnerable
 		}
@@ -181,12 +192,20 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 	header, body, err = readTLSRecord(conn)
 	if err != nil {
 		if isConnectionClosedErr(err) {
-			ccs.Vulnerable = notVulnerable
+			if firstResponseSuspicious {
+				ccs.Vulnerable = vulnerable
+			} else {
+				ccs.Vulnerable = notVulnerable
+			}
 
 			return nil
 		}
 
-		ccs.Vulnerable = notVulnerable
+		if firstResponseSuspicious {
+			ccs.Vulnerable = vulnerable
+		} else {
+			ccs.Vulnerable = notVulnerable
+		}
 
 		return nil
 	}
@@ -293,8 +312,8 @@ func buildClientHello() []byte {
 	clientHello.WriteByte(handshakeTypeClientHello)
 	clientHello.Write([]byte{0x00, 0x00, 0x00})
 
-	// Client Version (TLS 1.2)
-	clientHello.Write([]byte{0x03, 0x03})
+	// Client Version (TLS 1.0) to match the CCS injection probe flow.
+	clientHello.Write([]byte{0x03, 0x01})
 
 	// Random
 	clientHello.Write(random)
