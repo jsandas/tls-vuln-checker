@@ -289,7 +289,8 @@ func TestCheckCCS(t *testing.T) {
 		}
 
 		if r.Vulnerable != vulnerable {
-			t.Errorf("Expected server to be vulnerable when it responds with a non-unexpected fatal alert, got: %s", r.Vulnerable)
+			t.Errorf("Expected server to be vulnerable when it responds with a non-unexpected fatal alert, "+
+				"got: %s", r.Vulnerable)
 		}
 	})
 
