@@ -232,7 +232,12 @@ func TestCheckCCS(t *testing.T) {
 		}
 	})
 
-	t.Run("FatalAlertWithoutUnexpectedMessageIsVulnerable", func(t *testing.T) {
+	t.Run("FatalAlertNonUnexpectedMessageIsNotVulnerable", func(t *testing.T) {
+		// A server that responds to the premature CCS with a fatal alert of any
+		// description (not just unexpected_message) is still actively rejecting
+		// the message — it must be treated as NOT vulnerable.
+		// Patched OpenSSL 1.1.x typically sends record_overflow (70) or
+		// decode_error (50) rather than unexpected_message (10).
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
@@ -275,6 +280,7 @@ func TestCheckCCS(t *testing.T) {
 				return
 			}
 
+			// Simulate patched OpenSSL 1.1.x: fatal alert with desc=70 (record_overflow).
 			fatalAlert := []byte{recordTypeAlert, 0x03, 0x01, 0x00, 0x02, alertLevelFatal, 0x46}
 			_, _ = conn.Write(fatalAlert)
 		}()
@@ -288,13 +294,15 @@ func TestCheckCCS(t *testing.T) {
 			t.Fatalf("Check failed with an unexpected error: %v", err)
 		}
 
-		if r.Vulnerable != vulnerable {
-			t.Errorf("Expected server to be vulnerable when it responds with a non-unexpected fatal alert, "+
+		if r.Vulnerable != notVulnerable {
+			t.Errorf("Expected server to be NOT vulnerable when it responds with any fatal alert, "+
 				"got: %s", r.Vulnerable)
 		}
 	})
 
 	t.Run("SuspiciousThenFatalIsNotVulnerable", func(t *testing.T) {
+		// A server that responds to CCS #1 with a warning-level alert (ambiguous)
+		// but then rejects CCS #2 with a fatal alert should be reported as not vulnerable.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
@@ -330,7 +338,7 @@ func TestCheckCCS(t *testing.T) {
 				return
 			}
 
-			// Read first CCS and respond with a warning alert (suspicious but not decisive).
+			// Read first CCS and respond with a warning alert (ambiguous — not a definitive rejection).
 			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 
 			_, err = conn.Read(buf)
@@ -368,6 +376,72 @@ func TestCheckCCS(t *testing.T) {
 
 		if r.Vulnerable != notVulnerable {
 			t.Errorf("Expected server to be not vulnerable after fatal second response, got: %s", r.Vulnerable)
+		}
+	})
+
+	t.Run("AppDataResponseIsVulnerable", func(t *testing.T) {
+		// A server that responds to the first CCS with application data has
+		// clearly processed the out-of-order CCS — conclusively vulnerable.
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		lc := net.ListenConfig{}
+
+		ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("Failed to listen: %v", err)
+		}
+		defer ln.Close()
+
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			buf := make([]byte, 2048)
+
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			serverHelloDoneMsg := []byte{recordTypeHandshake, 0x03, 0x01, 0x00, 0x04,
+				handshakeTypeServerHelloDone, 0x00, 0x00, 0x00}
+
+			_, err = conn.Write(serverHelloDoneMsg)
+			if err != nil {
+				return
+			}
+
+			// Read CCS and respond with application data (server accepted and continued).
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+			_, err = conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			appData := []byte{recordTypeApplicationData, 0x03, 0x01, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'}
+			_, _ = conn.Write(appData)
+
+			io.Copy(io.Discard, conn)
+		}()
+
+		host, port, _ := net.SplitHostPort(ln.Addr().String())
+
+		var r CCSInjection
+
+		err = r.Check(host, port)
+		if err != nil {
+			t.Fatalf("Check failed with an unexpected error: %v", err)
+		}
+
+		if r.Vulnerable != vulnerable {
+			t.Errorf("Expected server to be vulnerable when it responds with AppData, got: %s", r.Vulnerable)
 		}
 	})
 }

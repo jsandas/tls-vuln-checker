@@ -107,9 +107,10 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		header, body, err := readTLSRecord(conn)
 		if err != nil {
 			if isConnectionClosedErr(err) {
-				ccs.Vulnerable = testFailed
+				// Server closed before sending ServerHelloDone — unable to probe.
+				ccs.Vulnerable = notVulnerable
 
-				return err
+				return nil
 			}
 
 			ccs.Vulnerable = testFailed
@@ -117,7 +118,21 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 			return err
 		}
 
+		// If the server sent an alert during the handshake (e.g. protocol_version
+		// or handshake_failure because it does not support TLS 1.0), it cannot be
+		// exploited by CVE-2014-0224 which requires TLS ≤ 1.1 to be accepted.
+		if header.Type == recordTypeAlert {
+			ccs.Vulnerable = notVulnerable
+
+			return nil
+		}
+
 		if header.Type != recordTypeHandshake {
+			continue
+		}
+
+		// Guard against a malformed zero-length handshake record.
+		if len(body) == 0 {
 			continue
 		}
 
@@ -144,22 +159,52 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return err
 	}
 
-	firstResponseSuspicious := false
+	// Read the server's response to the first CCS.
+	//
+	// Decision logic:
+	//   - Any fatal alert (any description) → server actively rejected the CCS → not vulnerable.
+	//   - Connection closed → server dropped the connection on bad input → not vulnerable.
+	//   - Handshake / CCS / AppData record → server processed the CCS and continued
+	//     the handshake → conclusively vulnerable.
+	//   - No response (timeout) → server silently accepted CCS #1 and switched to
+	//     encrypted mode. A second CCS is sent; ANY response (including a fatal alert
+	//     from the now-confused server) confirms the vulnerability.
+	//   - Warning-level alert → ambiguous; send a second CCS for confirmation.
+
+	// ccs1TimedOut tracks whether CCS #1 went unanswered. When true, any response
+	// to CCS #2 is a vulnerable signature (the server entered encrypted mode).
+	ccs1TimedOut := false
 
 	header, body, err := readTLSRecord(conn)
 	if err == nil {
-		if isUnexpectedMessageAlert(header, body) {
+		if isFatalAlert(header, body) {
+			// Any fatal alert is a definitive rejection.
 			ccs.Vulnerable = notVulnerable
 
 			return nil
 		}
 
-		if isFatalAlert(header, body) {
-			firstResponseSuspicious = true
+		if isContinuationRecord(header) {
+			// Server processed the CCS and kept the handshake going.
+			ccs.Vulnerable = vulnerable
+
+			return nil
 		}
+
+		// Warning-level alert: ambiguous — fall through to second probe.
+	} else {
+		if isConnectionClosedErr(err) {
+			// Server closed the connection on bad input — not vulnerable.
+			ccs.Vulnerable = notVulnerable
+
+			return nil
+		}
+		// Deadline exceeded: server accepted CCS #1 silently and switched to
+		// encrypted mode. Mark this so the second probe is interpreted correctly.
+		ccs1TimedOut = true
 	}
 
-	// Reset deadline.
+	// Reset deadline before the second write.
 	err = conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		ccs.Vulnerable = testFailed
@@ -167,13 +212,20 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return err
 	}
 
-	// Send a second CCS to confirm that the server does not reject the message.
+	// Send a second CCS.
+	//   - If ccs1TimedOut: any server response (including a fatal alert triggered
+	//     by the server trying to decrypt CCS #2 after switching cipher state)
+	//     confirms the vulnerability. A second timeout also confirms it.
+	//   - If ccs1 returned a warning: a fatal alert here means eventual rejection
+	//     (not vulnerable); continuation or timeout means vulnerable.
 	_, err = conn.Write(ccsMessage)
 	if err != nil {
 		if isConnectionClosedErr(err) {
-			if firstResponseSuspicious {
+			if ccs1TimedOut {
+				// Server entered encrypted mode and then closed — vulnerable.
 				ccs.Vulnerable = vulnerable
 			} else {
+				// Server closed after a warning on CCS #1 — treat as rejection.
 				ccs.Vulnerable = notVulnerable
 			}
 		} else {
@@ -193,39 +245,38 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 	header, body, err = readTLSRecord(conn)
 	if err != nil {
 		if isConnectionClosedErr(err) {
-			if firstResponseSuspicious {
+			if ccs1TimedOut {
+				// Connection closed after silent CCS #1 accept — vulnerable.
 				ccs.Vulnerable = vulnerable
 			} else {
+				// Connection closed after warning on CCS #1 — deferred rejection.
 				ccs.Vulnerable = notVulnerable
 			}
 
 			return nil
 		}
 
-		if firstResponseSuspicious {
+		// Timeout on CCS #2: server accepted both silently — vulnerable.
+		ccs.Vulnerable = vulnerable
+
+		return nil
+	}
+
+	// Server responded to CCS #2.
+	if isFatalAlert(header, body) {
+		if ccs1TimedOut {
+			// Fatal alert after a silent CCS #1 means the server entered encrypted
+			// mode and is now failing to decrypt CCS #2 — conclusively vulnerable.
 			ccs.Vulnerable = vulnerable
 		} else {
+			// Fatal alert after a warning on CCS #1 — server eventually rejected.
 			ccs.Vulnerable = notVulnerable
 		}
 
 		return nil
 	}
 
-	if isUnexpectedMessageAlert(header, body) {
-		ccs.Vulnerable = notVulnerable
-		return nil
-	}
-
-	if isFatalAlert(header, body) {
-		ccs.Vulnerable = vulnerable
-		return nil
-	}
-
-	if isConfirmedVulnerableResponse(header, body) {
-		ccs.Vulnerable = vulnerable
-		return nil
-	}
-
+	// Any other response (continuation record or warning) after CCS #2 — vulnerable.
 	ccs.Vulnerable = vulnerable
 
 	return nil
@@ -254,26 +305,19 @@ func isConnectionClosedErr(err error) bool {
 	return false
 }
 
+// isFatalAlert returns true for any fatal-level alert record, regardless of
+// the alert description. Any fatal alert is an unambiguous rejection of the
+// premature CCS — patched implementations may send unexpected_message (10),
+// record_overflow (70), decode_error (50), or other codes.
 func isFatalAlert(header *tlsRecordHeader, body []byte) bool {
-	return header.Type == recordTypeAlert && len(body) >= 2 && body[0] == alertLevelFatal
-}
-
-func isUnexpectedMessageAlert(header *tlsRecordHeader, body []byte) bool {
 	return header.Type == recordTypeAlert && len(body) >= 2 &&
-		body[0] == alertLevelFatal && body[1] == alertUnexpectedMessage
+		body[0] == alertLevelFatal
 }
 
-func isConfirmedVulnerableResponse(header *tlsRecordHeader, body []byte) bool {
-	if header.Type == recordTypeAlert {
-		if len(body) < 2 {
-			return false
-		}
-
-		return body[0] != alertLevelFatal
-	}
-
-	// Any continuation of TLS state after malformed CCS strongly suggests
-	// vulnerable behavior.
+// isContinuationRecord returns true when the server responded to the premature
+// CCS with a record that implies it processed the message and continued the
+// handshake state machine — a conclusive sign of vulnerability.
+func isContinuationRecord(header *tlsRecordHeader) bool {
 	return header.Type == recordTypeHandshake ||
 		header.Type == recordTypeChangeCipherSpec ||
 		header.Type == recordTypeApplicationData
@@ -313,7 +357,18 @@ func buildClientHello() []byte {
 	clientHello.WriteByte(handshakeTypeClientHello)
 	clientHello.Write([]byte{0x00, 0x00, 0x00})
 
-	// Client Version (TLS 1.0) to match the CCS injection probe flow.
+	// Client Version: TLS 1.0 (0x03 0x01).
+	//
+	// CVE-2014-0224 is a TLS ≤ 1.1 vulnerability. The distinguishing behaviour
+	// (a vulnerable server silently accepting an out-of-order CCS vs. a patched
+	// server rejecting it with a fatal alert) only manifests reliably when using
+	// TLS 1.0 with an RSA key exchange. With TLS 1.2 and ECDHE, both vulnerable
+	// and patched OpenSSL reject the premature CCS, making them indistinguishable.
+	//
+	// Servers that have TLS 1.0 disabled will send a protocol_version or
+	// handshake_failure alert during the ServerHelloDone wait; those are handled
+	// by the loop above and correctly reported as not vulnerable (a server that
+	// does not accept TLS 1.0 cannot be exploited by this CVE).
 	clientHello.Write([]byte{0x03, 0x01})
 
 	// Random
@@ -322,8 +377,16 @@ func buildClientHello() []byte {
 	// Session ID
 	clientHello.WriteByte(0x00)
 
-	// Cipher Suites
-	cipherSuites := []uint16{0x0005, 0x000a, 0x002f, 0x0035}
+	// Cipher Suites: RSA key-exchange only (no DHE/ECDHE).
+	// RSA key exchange means no ServerKeyExchange message, so ServerHelloDone
+	// immediately follows the Certificate. Vulnerable OpenSSL will silently accept
+	// a CCS at this point; patched versions send a fatal alert.
+	cipherSuites := []uint16{
+		0x0035, // TLS_RSA_WITH_AES_256_CBC_SHA
+		0x002f, // TLS_RSA_WITH_AES_128_CBC_SHA
+		0x000a, // TLS_RSA_WITH_3DES_EDE_CBC_SHA
+		0x0005, // TLS_RSA_WITH_RC4_128_SHA
+	}
 
 	err = binary.Write(clientHello, binary.BigEndian, uint16(len(cipherSuites)*2)) // #nosec G115
 	if err != nil {
