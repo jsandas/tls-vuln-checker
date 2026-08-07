@@ -51,11 +51,8 @@ func TestHeartbleed(t *testing.T) {
 			reason:             "OpenSSL 3.5.7 does not advertise the heartbeat extension regardless of TLS version range",
 		},
 		{
-			// This server (OpenSSL 1.0.1f, TLS 1.2-only) is actually heartbleed-vulnerable,
-			// but the probe uses TLS 1.0 and the server rejects TLS 1.0 connections.
-			// A TLS 1.2 probe with a proper record-layer parser would detect it, but
-			// the current checkExtension raw byte scanner terminates prematurely on
-			// large Certificate records at TLS 1.2. Result is n/a — a known limitation.
+			// OpenSSL 1.0.1f is Heartbleed-vulnerable; with TLS 1.2 enabled this scenario should
+			// advertise the heartbeat extension and be reported as vulnerable.
 			name:               "vulnerable_openssl_tls12_only",
 			host:               "127.0.0.1",
 			port:               "3443",
