@@ -345,7 +345,8 @@ func readTLSRecord(r io.Reader) (*tlsRecordHeader, []byte, error) {
 // The resulting bytes are the extension data payload (type + length header written by caller).
 func buildSNIExtension(host string) []byte {
 	// Strip port if present (e.g. "example.com:443" → "example.com").
-	if h, _, err := net.SplitHostPort(host); err == nil {
+	h, _, err := net.SplitHostPort(host)
+	if err == nil {
 		host = h
 	}
 

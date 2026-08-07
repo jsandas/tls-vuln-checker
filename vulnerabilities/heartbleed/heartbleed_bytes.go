@@ -138,7 +138,8 @@ func mustUint24Length(length int) [3]byte {
 // (i.e. the extension header — type + length — is handled by the caller).
 func buildSNIExtension(host string) []byte {
 	// Strip the port if present (e.g. "example.com:443" → "example.com").
-	if h, _, err := net.SplitHostPort(host); err == nil {
+	h, _, err := net.SplitHostPort(host)
+	if err == nil {
 		host = h
 	}
 
