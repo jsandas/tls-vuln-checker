@@ -48,6 +48,12 @@ go get github.com/jsandas/tls-vuln-checker
 
 Each vulnerability check is exposed as a small Go type with a `Check` method.
 
+Current APIs:
+
+- `ccs.CCSInjection.Check(host, port)` sets `Vulnerable` to `yes`, `no`, or `error`.
+- `heartbleed.Heartbleed.Check(host, port, tlsVers)` sets `Vulnerable` and `ExtensionEnabled`.
+- `debianweakkey.DebianWeakKey.Check(keysize, modulus)` sets `Vulnerable` to `yes`, `no`, `error`, or `uncommonKey` for unsupported key sizes.
+
 ```go
 package main
 
