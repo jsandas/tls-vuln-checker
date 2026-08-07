@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"math"
+	"net"
 )
 
 // TLS record types.
@@ -132,6 +133,32 @@ func mustUint24Length(length int) [3]byte {
 	return [3]byte{encoded[1], encoded[2], encoded[3]}
 }
 
+// buildSNIExtension encodes a server_name_list for the given host per RFC 6066 §3.
+// The resulting bytes are written directly as the Data field of the SNI extension
+// (i.e. the extension header — type + length — is handled by the caller).
+func buildSNIExtension(host string) []byte {
+	// Strip the port if present (e.g. "example.com:443" → "example.com").
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	name := []byte(host)
+	nameLen := len(name)
+	// server_name_list structure:
+	//   uint16  list_length  = 1 (name_type) + 2 (name_length) + nameLen
+	//   uint8   name_type    = 0x00 (host_name)
+	//   uint16  name_length
+	//   []byte  name
+	listLen := 1 + 2 + nameLen
+	buf := make([]byte, 2+1+2+nameLen)
+	binary.BigEndian.PutUint16(buf[0:], uint16(listLen)) // #nosec G115
+	buf[2] = 0x00                                        // name_type: host_name
+	binary.BigEndian.PutUint16(buf[3:], uint16(nameLen)) // #nosec G115
+	copy(buf[5:], name)
+
+	return buf
+}
+
 func makePayload(tlsVers int) []byte {
 	buf := new(bytes.Buffer)
 	msg := HeartbeatMessage{
@@ -151,7 +178,7 @@ func makePayload(tlsVers int) []byte {
 	return buf.Bytes()
 }
 
-func makeClientHello(tlsVers int) []byte {
+func makeClientHello(host string, tlsVers int) []byte {
 	buf := new(bytes.Buffer)
 
 	// Generate random bytes for the client hello
@@ -161,6 +188,10 @@ func makeClientHello(tlsVers int) []byte {
 
 	// Create extensions
 	extensions := []Extension{
+		{
+			Type: extensionServerName,
+			Data: buildSNIExtension(host),
+		},
 		{
 			Type: extensionSecureRenegotiation,
 			Data: []byte{0x00}, // Empty renegotiation info
