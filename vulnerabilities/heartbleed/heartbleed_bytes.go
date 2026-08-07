@@ -162,10 +162,6 @@ func makeClientHello(tlsVers int) []byte {
 	// Create extensions
 	extensions := []Extension{
 		{
-			Type: extensionServerName,
-			Data: []byte{0x00, 0x0b, 0x00, 0x04, 0x03, 0x00, 0x01, 0x02}, // SNI extension data
-		},
-		{
 			Type: extensionSecureRenegotiation,
 			Data: []byte{0x00}, // Empty renegotiation info
 		},
