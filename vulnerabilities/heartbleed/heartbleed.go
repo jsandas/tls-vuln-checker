@@ -89,7 +89,7 @@ func (h *Heartbleed) Check(host string, port string, tlsVers int) error {
 	}
 
 	// Send clientHello
-	clientHello := makeClientHello(tlsVers)
+	clientHello := makeClientHello(host, tlsVers)
 
 	err = write(conn, clientHello, 2)
 	if err != nil {

@@ -24,7 +24,7 @@ integration-down:
 	@cd integration_tests && docker compose down
 
 # Run integration tests (requires running containers)
-test-integration:
+test-integration: integration-up
 	@cd integration_tests && go test -v -tags=integration ./...
 
 # Run linting with golangci-lint

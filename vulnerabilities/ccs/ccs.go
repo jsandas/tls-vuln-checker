@@ -93,7 +93,12 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 		return err
 	}
 
-	clientHello := buildClientHello()
+	clientHello := buildClientHello(host)
+	if len(clientHello) == 0 {
+		ccs.Vulnerable = testFailed
+
+		return errors.New("failed to build ClientHello")
+	}
 
 	_, err = conn.Write(clientHello)
 	if err != nil {
@@ -341,7 +346,33 @@ func readTLSRecord(r io.Reader) (*tlsRecordHeader, []byte, error) {
 	return header, body, nil
 }
 
-func buildClientHello() []byte {
+// buildSNIExtension encodes a server_name_list for the given host per RFC 6066 §3.
+// The resulting bytes are the extension data payload (type + length header written by caller).
+func buildSNIExtension(host string) []byte {
+	// Strip port if present (e.g. "example.com:443" → "example.com").
+	h, _, err := net.SplitHostPort(host)
+	if err == nil {
+		host = h
+	}
+
+	name := []byte(host)
+	nameLen := len(name)
+	// server_name_list:
+	//   uint16  list_length  = 1 (name_type) + 2 (name_length) + nameLen
+	//   uint8   name_type    = 0x00 (host_name)
+	//   uint16  name_length
+	//   []byte  name
+	listLen := 1 + 2 + nameLen
+	buf := make([]byte, 2+1+2+nameLen)
+	binary.BigEndian.PutUint16(buf[0:], uint16(listLen)) // #nosec G115
+	buf[2] = 0x00                                        // name_type: host_name
+	binary.BigEndian.PutUint16(buf[3:], uint16(nameLen)) // #nosec G115
+	copy(buf[5:], name)
+
+	return buf
+}
+
+func buildClientHello(host string) []byte {
 	// A simplified but valid ClientHello.
 	// The handshake length must match the bytes written in the payload,
 	// otherwise many servers reject the message immediately.
@@ -404,8 +435,18 @@ func buildClientHello() []byte {
 	clientHello.WriteByte(0x01) // Length
 	clientHello.WriteByte(0x00) // Null compression
 
-	// Extensions (empty for this simplified hello)
-	clientHello.Write([]byte{0x00, 0x00})
+	// Extensions
+	sniData := buildSNIExtension(host)
+	extBuf := new(bytes.Buffer)
+	// SNI extension (type 0x0000)
+	extBuf.Write([]byte{0x00, 0x00})
+	_ = binary.Write(extBuf, binary.BigEndian, uint16(len(sniData))) // #nosec G115
+	extBuf.Write(sniData)
+	// Secure renegotiation (type 0xff01): one-byte empty extension data
+	// with a zero-length renegotiated_connection field.
+	extBuf.Write([]byte{0xff, 0x01, 0x00, 0x01, 0x00})
+	_ = binary.Write(clientHello, binary.BigEndian, uint16(extBuf.Len())) // #nosec G115
+	clientHello.Write(extBuf.Bytes())
 
 	payloadBytes := clientHello.Bytes()
 	handshakeLength := len(payloadBytes) - 4
