@@ -94,6 +94,11 @@ func (ccs *CCSInjection) Check(host string, port string) error {
 	}
 
 	clientHello := buildClientHello(host)
+	if len(clientHello) == 0 {
+		ccs.Vulnerable = testFailed
+
+		return errors.New("failed to build ClientHello")
+	}
 
 	_, err = conn.Write(clientHello)
 	if err != nil {
@@ -437,7 +442,8 @@ func buildClientHello(host string) []byte {
 	extBuf.Write([]byte{0x00, 0x00})
 	_ = binary.Write(extBuf, binary.BigEndian, uint16(len(sniData))) // #nosec G115
 	extBuf.Write(sniData)
-	// Secure renegotiation (type 0xff01): empty
+	// Secure renegotiation (type 0xff01): one-byte empty extension data
+	// with a zero-length renegotiated_connection field.
 	extBuf.Write([]byte{0xff, 0x01, 0x00, 0x01, 0x00})
 	_ = binary.Write(clientHello, binary.BigEndian, uint16(extBuf.Len())) // #nosec G115
 	clientHello.Write(extBuf.Bytes())
